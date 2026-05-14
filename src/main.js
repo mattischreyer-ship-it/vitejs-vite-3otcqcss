@@ -5,8 +5,9 @@ import { mouse } from './core/mouse.js';
 import { camera } from './core/camera.js'; 
 import { Grid } from './map/grid.js';
 import { Builder } from './core/builder.js';
-import { HUD } from './src/ui/hud.js';
-import { EconomyManager } from './src/core/economy.js'; // Added Economy Manager
+import { HUD } from './ui/hud.js';
+import { EconomyManager } from './core/economy.js';
+import { Unit } from './entities/units.js';
 
 console.log("Stronghold RTS - Initializing Engine...");
 
@@ -26,9 +27,24 @@ const worldMap = new Grid(
 );
 
 const builder = new Builder(worldMap);
-const economy = new EconomyManager(); // Step 3: Initialize the Economy logic
+const economy = new EconomyManager();
+
+// Unit spawning
+events.on('SPAWN_UNIT', ({ type }) => {
+  const spawnX = Math.floor(config.world.mapWidth / 2);
+  const spawnY = Math.floor(config.world.mapHeight / 2);
+  state.units.push(new Unit(spawnX, spawnY, type));
+});
+
+// Click-to-move: when not in build mode, move all units to clicked tile
+events.on('TILE_CLICKED', (pos) => {
+  if (!builder.activeType) {
+    state.units.forEach(u => u.moveTo(pos.x, pos.y, worldMap));
+  }
+});
 
 let lastSimulationTime = 0;
+let lastFrameTime = 0;
 
 // 3. Simulation Logic (1-second ticks)
 function updateSimulation(currentTime) {
@@ -43,23 +59,32 @@ function updateSimulation(currentTime) {
 }
 
 // 4. Rendering Logic (60fps)
-function updateRender() {
+function updateRender(currentTime) {
+  const deltaMs = currentTime - lastFrameTime;
+  lastFrameTime = currentTime;
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
+
   // Enter World Space (Apply Camera Transform)
   ctx.save();
-  camera.apply(ctx); 
-  
+  camera.applyTransform(ctx);
+
   worldMap.draw(ctx);
-  
+
+  // Update and draw units
+  state.units.forEach(u => {
+    u.update(deltaMs);
+    u.draw(ctx, config.world.gridSize);
+  });
+
   // Draw the placement preview if the player is in "Build Mode"
   if (builder.activeType) {
     renderGhost(ctx);
   }
-  
+
   ctx.restore(); // Return to Screen Space (UI Layer)
-  
-  drawDebugInfo(); 
+
+  drawDebugInfo();
 }
 
 /**
@@ -98,20 +123,21 @@ function renderGhost(ctx) {
  */
 function drawDebugInfo() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-  ctx.fillRect(10, 10, 220, 100);
-  
+  ctx.fillRect(10, 10, 220, 120);
+
   ctx.fillStyle = '#fff';
   ctx.font = '14px monospace';
   ctx.fillText(`Tick: ${state.game.tick}`, 20, 30);
   ctx.fillText(`Wood: ${Math.floor(state.resources.wood)}`, 20, 50);
   ctx.fillText(`Gold: ${Math.floor(state.resources.gold)}`, 20, 70);
-  ctx.fillText(`Mode: ${builder.activeType || 'Selection'}`, 20, 90);
+  ctx.fillText(`Units: ${state.units.length}  [P]=spawn`, 20, 90);
+  ctx.fillText(`Mode: ${builder.activeType || 'Select'}`, 20, 110);
 }
 
 // 5. Main Loop
 function gameLoop(currentTime) {
   updateSimulation(currentTime);
-  updateRender();
+  updateRender(currentTime);
   requestAnimationFrame(gameLoop);
 }
 
@@ -124,7 +150,27 @@ window.addEventListener('resize', () => {
 document.addEventListener('keydown', (e) => {
   if (e.key === '1') events.emit('UI_SELECT_BUILDING', 'HOVEL');
   if (e.key === '2') events.emit('UI_SELECT_BUILDING', 'WOODCUTTER');
-  if (e.key === 'Escape') builder.cancel(); 
+  if (e.key === '3') events.emit('UI_SELECT_BUILDING', 'QUARRY');
+  if (e.key === 'p' || e.key === 'P') events.emit('SPAWN_UNIT', { type: 'PEASANT' });
+  if (e.key === 'Escape') builder.cancel();
+});
+
+// Translate canvas left-clicks into grid tile events
+canvas.addEventListener('click', (e) => {
+  const worldPos = camera.screenToWorld(e.clientX, e.clientY);
+  const tileX = Math.floor(worldPos.x / config.world.gridSize);
+  const tileY = Math.floor(worldPos.y / config.world.gridSize);
+  if (tileX >= 0 && tileY >= 0 && tileX < config.world.mapWidth && tileY < config.world.mapHeight) {
+    events.emit('TILE_CLICKED', { x: tileX, y: tileY });
+  }
+});
+
+// Track mouse tile position for ghost preview
+canvas.addEventListener('mousemove', (e) => {
+  const worldPos = camera.screenToWorld(e.clientX, e.clientY);
+  const tileX = Math.floor(worldPos.x / config.world.gridSize);
+  const tileY = Math.floor(worldPos.y / config.world.gridSize);
+  events.emit('MOUSE_TILE_CHANGE', { x: tileX, y: tileY });
 });
 
 // Initialization Call

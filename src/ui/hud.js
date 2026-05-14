@@ -1,5 +1,5 @@
-import { state } from '/state.js';
-import { events } from '/core/events.js';
+import { state } from '../state.js';
+import { events } from '../core/events.js';
 
 export class HUD {
   constructor() {
@@ -31,7 +31,7 @@ export class HUD {
     // We update the numbers every frame or every tick
     this.elements.wood.innerText = Math.floor(state.resources.wood);
     this.elements.gold.innerText = Math.floor(state.resources.gold);
-    this.elements.pop.innerText = `${state.resources.population}/${state.resources.maxPopulation}`;
+    this.elements.pop.innerText = `${state.population.current}/${state.population.max}`;
 
     requestAnimationFrame(() => this.update());
   }

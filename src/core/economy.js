@@ -29,8 +29,8 @@ export class EconomyManager {
     });
 
     // 3. Optional: Passive gold generation from population (taxes!)
-    if (state.resources.population > 0) {
-      state.resources.gold += (state.resources.population * 0.1);
+    if (state.population.current > 0) {
+      state.resources.gold += (state.population.current * 0.1);
     }
   }
 
