@@ -8,7 +8,9 @@ import { Builder } from './core/builder.js';
 import { HUD } from './ui/hud.js';
 import { EconomyManager } from './core/economy.js';
 import { Unit } from './entities/units.js';
+import { Enemy } from './entities/enemies.js';
 import { selector } from './core/selector.js';
+import { save, load, hasSave } from './core/storage.js';
 
 console.log("Stronghold RTS - Initializing Engine...");
 
@@ -32,11 +34,49 @@ worldMap.placeResources();
 const builder = new Builder(worldMap);
 const economy = new EconomyManager();
 
-// Unit spawning
+// Unit spawning — checks population cap and resource costs
 events.on('SPAWN_UNIT', ({ type }) => {
-  const spawnX = Math.floor(config.world.mapWidth / 2);
-  const spawnY = Math.floor(config.world.mapHeight / 2);
-  state.units.push(new Unit(spawnX, spawnY, type));
+  if (state.population.current >= state.population.max) return;
+  const cost = config.units[type]?.spawnCost || {};
+  for (const [res, amt] of Object.entries(cost)) {
+    if ((state.resources[res] ?? 0) < amt) return;
+  }
+  for (const [res, amt] of Object.entries(cost)) state.resources[res] -= amt;
+
+  if (type === 'SOLDIER') {
+    const barracks = state.buildings.find(b => b.type === 'BARRACKS' && b.status === 'COMPLETE');
+    if (!barracks) return;
+    const spawnX = barracks.x + Math.floor((barracks.w || 2) / 2);
+    const spawnY = barracks.y + (barracks.h || 2);
+    state.units.push(new Unit(spawnX, spawnY, 'SOLDIER'));
+  } else {
+    const spawnX = Math.floor(config.world.mapWidth / 2);
+    const spawnY = Math.floor(config.world.mapHeight / 2);
+    state.units.push(new Unit(spawnX, spawnY, type));
+  }
+  state.population.current++;
+});
+
+// Population and building effects on completion
+events.on('BUILDING_COMPLETE', ({ buildingId }) => {
+  const building = state.buildings.find(b => b.id === buildingId);
+  if (!building) return;
+  if (building.type === 'HOVEL') {
+    state.population.max += config.buildings.HOVEL.production.population ?? 8;
+  }
+});
+
+// Combat: deal damage to enemy
+events.on('UNIT_ATTACKED', ({ unitId, enemyId, damage }) => {
+  const enemy = state.enemies.find(e => e.id === enemyId);
+  const unit  = state.units.find(u => u.id === unitId);
+  if (!enemy) { if (unit) unit.stopAttacking(); return; }
+  enemy.takeDamage(damage);
+});
+
+// Remove dead enemies from state
+events.on('ENEMY_DIED', ({ enemyId }) => {
+  state.enemies = state.enemies.filter(e => e.id !== enemyId);
 });
 
 // Move, gather, or build depending on what's at the target tile
@@ -97,12 +137,55 @@ let lastFrameTime = 0;
 function updateSimulation(currentTime) {
   if (currentTime - lastSimulationTime >= config.timing.simulationTick) {
     state.game.tick++;
-    
-    // This event triggers the EconomyManager to process production
     events.emit('simulation:tick', { tick: state.game.tick });
-    
+
+    // Spawn an enemy wave every N ticks
+    if (state.game.tick % config.enemySpawnInterval === 0) spawnEnemy();
+
+    // Re-target idle enemies toward map center
+    const cx = Math.floor(config.world.mapWidth / 2);
+    const cy = Math.floor(config.world.mapHeight / 2);
+    state.enemies.forEach(e => {
+      if (e.unitState === 'IDLE') e.moveTo(cx, cy, worldMap);
+    });
+
+    // Idle soldiers auto-target nearest enemy
+    if (state.enemies.length > 0) {
+      state.units.forEach(u => {
+        if (u.type === 'SOLDIER' && u.unitState === 'IDLE') {
+          const nearest = nearestEntity(u, state.enemies);
+          if (nearest) u.attackEnemy(nearest, worldMap);
+        }
+      });
+    }
+
     lastSimulationTime = currentTime;
   }
+}
+
+function spawnEnemy() {
+  const w = config.world.mapWidth, h = config.world.mapHeight;
+  const edges = [
+    [0,                         Math.floor(Math.random() * h)],
+    [w - 1,                     Math.floor(Math.random() * h)],
+    [Math.floor(Math.random() * w), 0                        ],
+    [Math.floor(Math.random() * w), h - 1                    ],
+  ];
+  const [ex, ey] = edges[Math.floor(Math.random() * edges.length)];
+  if (!worldMap.cells[ex]?.[ey]?.walkable) return;
+  const enemy = new Enemy(ex, ey);
+  const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+  enemy.moveTo(cx, cy, worldMap);
+  state.enemies.push(enemy);
+}
+
+function nearestEntity(from, list) {
+  let best = null, bestDist = Infinity;
+  for (const e of list) {
+    const d = Math.abs(e.gridX - from.gridX) + Math.abs(e.gridY - from.gridY);
+    if (d < bestDist) { bestDist = d; best = e; }
+  }
+  return best;
 }
 
 // 4. Rendering Logic (60fps)
@@ -117,6 +200,12 @@ function updateRender(currentTime) {
   camera.applyTransform(ctx);
 
   worldMap.draw(ctx);
+
+  // Update and draw enemies
+  state.enemies.forEach(e => {
+    e.update(deltaMs);
+    e.draw(ctx, config.world.gridSize);
+  });
 
   // Update and draw units
   state.units.forEach(u => {
@@ -182,17 +271,20 @@ function drawSelectionBox() {
  * Basic Screen-Space Debug Overlay
  */
 function drawDebugInfo() {
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-  ctx.fillRect(10, 10, 240, 140);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(10, 10, 260, 180);
 
   ctx.fillStyle = '#fff';
-  ctx.font = '14px monospace';
-  ctx.fillText(`Tick: ${state.game.tick}`, 20, 30);
-  ctx.fillText(`Wood: ${Math.floor(state.resources.wood)}  Stone: ${Math.floor(state.resources.stone)}`, 20, 50);
-  ctx.fillText(`Gold: ${Math.floor(state.resources.gold)}`, 20, 70);
-  ctx.fillText(`Units: ${state.units.length}  sel:${state.selection.ids.length}  [P]=spawn`, 20, 90);
-  ctx.fillText(`Mode: ${builder.activeType || 'Select'}`, 20, 110);
-  ctx.fillText(`[1]Hovel [2]Wood [3]Quarry`, 20, 130);
+  ctx.font = '13px monospace';
+  ctx.fillText(`Tick: ${state.game.tick}  Enemies: ${state.enemies.length}`, 20, 30);
+  ctx.fillText(`Wood:${Math.floor(state.resources.wood)}  Stone:${Math.floor(state.resources.stone)}`, 20, 48);
+  ctx.fillText(`Gold:${Math.floor(state.resources.gold)}  Food:${Math.floor(state.resources.food)}`, 20, 66);
+  ctx.fillText(`Pop: ${state.population.current}/${state.population.max}`, 20, 84);
+  ctx.fillText(`Sel: ${state.selection.ids.length}  Mode: ${builder.activeType || 'Select'}`, 20, 102);
+  ctx.fillStyle = '#aaa';
+  ctx.fillText(`[P]Peasant(food) [S]Soldier(gold)`, 20, 122);
+  ctx.fillText(`[1]Hovel [2]Lumber [3]Quarry [4]Barracks`, 20, 140);
+  ctx.fillText(`[Ctrl+S]Save  [Ctrl+L]Load`, 20, 158);
 }
 
 // 5. Main Loop
@@ -212,7 +304,16 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '1') events.emit('UI_SELECT_BUILDING', 'HOVEL');
   if (e.key === '2') events.emit('UI_SELECT_BUILDING', 'WOODCUTTER');
   if (e.key === '3') events.emit('UI_SELECT_BUILDING', 'QUARRY');
+  if (e.key === '4') events.emit('UI_SELECT_BUILDING', 'BARRACKS');
   if (e.key === 'p' || e.key === 'P') events.emit('SPAWN_UNIT', { type: 'PEASANT' });
+  if (e.key === 's' || e.key === 'S') {
+    if (e.ctrlKey) { e.preventDefault(); save(worldMap); }
+    else events.emit('SPAWN_UNIT', { type: 'SOLDIER' });
+  }
+  if ((e.key === 'l' || e.key === 'L') && e.ctrlKey) {
+    e.preventDefault();
+    load(worldMap);
+  }
   if (e.key === 'Escape') { builder.cancel(); selector.clearSelection(); }
 });
 

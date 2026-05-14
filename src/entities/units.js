@@ -11,24 +11,29 @@ export class Unit {
     this.gridY = gridY;
     this.selected = false;
 
-    // Movement
     this.path = [];
     this.moveTimer = 0;
-    this.moveInterval = 250; // ms per tile
+    this.moveInterval = type === 'SOLDIER' ? 220 : 250;
 
-    // State machine: 'IDLE' | 'MOVING' | 'GATHERING' | 'BUILDING'
+    // State machine: 'IDLE' | 'MOVING' | 'GATHERING' | 'BUILDING' | 'ATTACKING'
     this.unitState = 'IDLE';
-    this._pendingState = null; // state to enter once movement ends
+    this._pendingState = null;
 
     // Gathering
-    this.gatherTarget = null;  // { x, y }
-    this.gatherTimer = 0;
+    this.gatherTarget  = null;
+    this.gatherTimer   = 0;
     this.gatherInterval = 800;
 
     // Building
-    this.buildTarget = null;   // building.id
-    this.buildTimer = 0;
+    this.buildTarget   = null;
+    this.buildTimer    = 0;
     this.buildInterval = 1200;
+
+    // Attacking (soldiers only)
+    this.attackTarget   = null; // enemy id
+    this.attackTimer    = 0;
+    this.attackInterval = type === 'SOLDIER' ? 800 : 1200;
+    this.attackDamage   = type === 'SOLDIER' ? 3 : 1;
   }
 
   // ─── Movement ────────────────────────────────────────────────
@@ -39,6 +44,7 @@ export class Unit {
       this.path = path.slice(1);
       this.unitState = 'MOVING';
       this.moveTimer = 0;
+      this._pendingState = null;
     }
   }
 
@@ -50,6 +56,7 @@ export class Unit {
     this.gatherTarget = { x: resX, y: resY };
     this._pendingState = 'GATHERING';
     this.moveTo(adj.x, adj.y, grid);
+    this._pendingState = 'GATHERING'; // moveTo clears it; restore
   }
 
   buildAt(building, grid) {
@@ -58,17 +65,24 @@ export class Unit {
     this.buildTarget = building.id;
     this._pendingState = 'BUILDING';
     this.moveTo(adj.x, adj.y, grid);
+    this._pendingState = 'BUILDING';
   }
 
-  stopGathering() {
-    this.unitState = 'IDLE';
-    this.gatherTarget = null;
-    this._pendingState = null;
+  attackEnemy(enemy, grid) {
+    const adj = this._findAdjacent(enemy.gridX, enemy.gridY, 1, 1, grid);
+    if (!adj) return;
+    this.attackTarget = enemy.id;
+    this._pendingState = 'ATTACKING';
+    this.moveTo(adj.x, adj.y, grid);
+    this._pendingState = 'ATTACKING';
   }
 
-  stopBuilding() {
-    this.unitState = 'IDLE';
-    this.buildTarget = null;
+  stopGathering()  { this._resetTask(); this.gatherTarget = null; }
+  stopBuilding()   { this._resetTask(); this.buildTarget  = null; }
+  stopAttacking()  { this._resetTask(); this.attackTarget = null; }
+
+  _resetTask() {
+    this.unitState    = 'IDLE';
     this._pendingState = null;
   }
 
@@ -84,31 +98,30 @@ export class Unit {
         this.gridY = next.y;
       }
       if (this.path.length === 0) {
-        this.unitState = this._pendingState || 'IDLE';
+        this.unitState  = this._pendingState || 'IDLE';
         this._pendingState = null;
-        this.gatherTimer = 0;
-        this.buildTimer = 0;
+        this.gatherTimer = this.buildTimer = this.attackTimer = 0;
       }
 
     } else if (this.unitState === 'GATHERING') {
       this.gatherTimer += deltaMs;
       if (this.gatherTimer >= this.gatherInterval) {
         this.gatherTimer -= this.gatherInterval;
-        events.emit('UNIT_GATHERED', {
-          unitId: this.id,
-          tileX: this.gatherTarget.x,
-          tileY: this.gatherTarget.y,
-        });
+        events.emit('UNIT_GATHERED', { unitId: this.id, tileX: this.gatherTarget.x, tileY: this.gatherTarget.y });
       }
 
     } else if (this.unitState === 'BUILDING') {
       this.buildTimer += deltaMs;
       if (this.buildTimer >= this.buildInterval) {
         this.buildTimer -= this.buildInterval;
-        events.emit('UNIT_BUILT', {
-          unitId: this.id,
-          buildingId: this.buildTarget,
-        });
+        events.emit('UNIT_BUILT', { unitId: this.id, buildingId: this.buildTarget });
+      }
+
+    } else if (this.unitState === 'ATTACKING') {
+      this.attackTimer += deltaMs;
+      if (this.attackTimer >= this.attackInterval) {
+        this.attackTimer -= this.attackInterval;
+        events.emit('UNIT_ATTACKED', { unitId: this.id, enemyId: this.attackTarget, damage: this.attackDamage });
       }
     }
   }
@@ -118,13 +131,12 @@ export class Unit {
   draw(ctx, tileSize) {
     const px = this.gridX * tileSize + tileSize / 2;
     const py = this.gridY * tileSize + tileSize / 2;
-    const r  = tileSize * 0.42;
 
     if (this.selected) {
-      ctx.strokeStyle = '#00ff88';
+      ctx.strokeStyle = this.type === 'SOLDIER' ? '#88aaff' : '#00ff88';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.arc(px, py, tileSize * 0.42, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -136,22 +148,18 @@ export class Unit {
     ctx.font = `${tileSize * 0.65}px Arial`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🧑', px, py);
+    ctx.fillText(this.type === 'SOLDIER' ? '🗡️' : '🧑', px, py);
 
-    // State indicator (top-right)
-    const ix = px + tileSize * 0.28;
-    const iy = py - tileSize * 0.28;
+    const ix = px + tileSize * 0.28, iy = py - tileSize * 0.28;
     if (this.unitState === 'MOVING') {
       ctx.fillStyle = '#00ff88';
-      ctx.beginPath();
-      ctx.arc(ix, iy, 3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(ix, iy, 3, 0, Math.PI * 2); ctx.fill();
     } else if (this.unitState === 'GATHERING') {
-      ctx.font = `${tileSize * 0.38}px Arial`;
-      ctx.fillText('⛏', ix, iy);
+      ctx.font = `${tileSize * 0.38}px Arial`; ctx.fillText('⛏', ix, iy);
     } else if (this.unitState === 'BUILDING') {
-      ctx.font = `${tileSize * 0.38}px Arial`;
-      ctx.fillText('🔨', ix, iy);
+      ctx.font = `${tileSize * 0.38}px Arial`; ctx.fillText('🔨', ix, iy);
+    } else if (this.unitState === 'ATTACKING') {
+      ctx.font = `${tileSize * 0.38}px Arial`; ctx.fillText('⚔️', ix, iy);
     }
   }
 
@@ -161,8 +169,7 @@ export class Unit {
     for (let dx = 0; dx < w; dx++) {
       for (let dy = 0; dy < h; dy++) {
         for (const [ox, oy] of DIRS) {
-          const nx = originX + dx + ox;
-          const ny = originY + dy + oy;
+          const nx = originX + dx + ox, ny = originY + dy + oy;
           if (nx >= 0 && ny >= 0 && nx < grid.width && ny < grid.height) {
             const cell = grid.cells[nx][ny];
             if (cell.walkable && !cell.buildingId) return { x: nx, y: ny };

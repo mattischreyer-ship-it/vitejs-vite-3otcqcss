@@ -21,4 +21,5 @@ export const state = {
   // Main entity arrays
   units: [],
   buildings: [],
-}; 
+  enemies: [],
+};

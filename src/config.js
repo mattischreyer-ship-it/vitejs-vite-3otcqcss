@@ -23,14 +23,11 @@ export const config = {
     }
   },
   
-  // Unit Stats (for future expansion)
   units: {
-    peasant: {
-      speed: 2,
-      health: 50,
-      gatherRate: 1,
-    }
+    PEASANT: { spawnCost: { food: 10 } },
+    SOLDIER: { spawnCost: { gold: 20 }, attackDamage: 3, attackInterval: 800 },
   },
+  enemySpawnInterval: 10, // sim ticks between enemy waves
   
   // Building Costs (for future expansion)
   buildings: {
@@ -51,7 +48,12 @@ export const config = {
       cost: { gold: 50 },
       production: { stone: 1 },
       width: 2, height: 2, icon: '🧱'
-    }
-  }
+    },
+    BARRACKS: {
+      name: 'Barracks',
+      cost: { wood: 20, stone: 10 },
+      production: {},
+      width: 2, height: 2, icon: '⚔️'
+    },
   }
 };

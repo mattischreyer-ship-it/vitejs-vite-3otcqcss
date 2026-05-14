@@ -26,10 +26,18 @@ export const BUILDING_TYPES = {
   },
   QUARRY: {
     name: 'Quarry',
-    width: 1,
-    height: 1,
+    width: 2,
+    height: 2,
     cost: { wood: 20, gold: 0 },
     icon: '⛏️',
     description: 'Gathers stone'
+  },
+  BARRACKS: {
+    name: 'Barracks',
+    width: 2,
+    height: 2,
+    cost: { wood: 20, stone: 10 },
+    icon: '⚔️',
+    description: 'Trains soldiers'
   }
 };
