@@ -8,6 +8,7 @@ import { Builder } from './core/builder.js';
 import { HUD } from './ui/hud.js';
 import { EconomyManager } from './core/economy.js';
 import { Unit } from './entities/units.js';
+import { selector } from './core/selector.js';
 
 console.log("Stronghold RTS - Initializing Engine...");
 
@@ -36,11 +37,11 @@ events.on('SPAWN_UNIT', ({ type }) => {
   state.units.push(new Unit(spawnX, spawnY, type));
 });
 
-// Click-to-move: when not in build mode, move all units to clicked tile
-events.on('TILE_CLICKED', (pos) => {
-  if (!builder.activeType) {
-    state.units.forEach(u => u.moveTo(pos.x, pos.y, worldMap));
-  }
+// Move only selected units to the clicked tile
+events.on('MOVE_SELECTED', ({ tileX, tileY }) => {
+  state.units
+    .filter(u => u.selected)
+    .forEach(u => u.moveTo(tileX, tileY, worldMap));
 });
 
 let lastSimulationTime = 0;
@@ -84,6 +85,7 @@ function updateRender(currentTime) {
 
   ctx.restore(); // Return to Screen Space (UI Layer)
 
+  drawSelectionBox();
   drawDebugInfo();
 }
 
@@ -118,6 +120,18 @@ function renderGhost(ctx) {
   }
 }
 
+function drawSelectionBox() {
+  const rect = selector.getSelectionRect();
+  if (!rect) return;
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.fillStyle = 'rgba(0, 255, 136, 0.06)';
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.setLineDash([]);
+}
+
 /**
  * Basic Screen-Space Debug Overlay
  */
@@ -130,7 +144,7 @@ function drawDebugInfo() {
   ctx.fillText(`Tick: ${state.game.tick}`, 20, 30);
   ctx.fillText(`Wood: ${Math.floor(state.resources.wood)}`, 20, 50);
   ctx.fillText(`Gold: ${Math.floor(state.resources.gold)}`, 20, 70);
-  ctx.fillText(`Units: ${state.units.length}  [P]=spawn`, 20, 90);
+  ctx.fillText(`Units: ${state.units.length}  sel:${state.selection.ids.length}  [P]=spawn`, 20, 90);
   ctx.fillText(`Mode: ${builder.activeType || 'Select'}`, 20, 110);
 }
 
@@ -152,25 +166,29 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '2') events.emit('UI_SELECT_BUILDING', 'WOODCUTTER');
   if (e.key === '3') events.emit('UI_SELECT_BUILDING', 'QUARRY');
   if (e.key === 'p' || e.key === 'P') events.emit('SPAWN_UNIT', { type: 'PEASANT' });
-  if (e.key === 'Escape') builder.cancel();
+  if (e.key === 'Escape') { builder.cancel(); selector.clearSelection(); }
 });
 
-// Translate canvas left-clicks into grid tile events
-canvas.addEventListener('click', (e) => {
-  const worldPos = camera.screenToWorld(e.clientX, e.clientY);
-  const tileX = Math.floor(worldPos.x / config.world.gridSize);
-  const tileY = Math.floor(worldPos.y / config.world.gridSize);
-  if (tileX >= 0 && tileY >= 0 && tileX < config.world.mapWidth && tileY < config.world.mapHeight) {
-    events.emit('TILE_CLICKED', { x: tileX, y: tileY });
-  }
+// Left mouse: drive selector (selection box + click-to-select/move)
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button === 0) selector.startDrag(e.clientX, e.clientY);
 });
 
-// Track mouse tile position for ghost preview
 canvas.addEventListener('mousemove', (e) => {
-  const worldPos = camera.screenToWorld(e.clientX, e.clientY);
-  const tileX = Math.floor(worldPos.x / config.world.gridSize);
-  const tileY = Math.floor(worldPos.y / config.world.gridSize);
+  // Selector drag tracking
+  selector.updateDrag(e.clientX, e.clientY);
+
+  // Ghost preview tile tracking
+  const world = camera.screenToWorld(e.clientX, e.clientY);
+  const tileX = Math.floor(world.x / config.world.gridSize);
+  const tileY = Math.floor(world.y / config.world.gridSize);
   events.emit('MOUSE_TILE_CHANGE', { x: tileX, y: tileY });
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  if (e.button === 0) {
+    selector.endDrag(e.clientX, e.clientY, camera, config.world.gridSize, !!builder.activeType);
+  }
 });
 
 // Initialization Call

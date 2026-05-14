@@ -10,6 +10,7 @@ export class Unit {
     this.unitState = 'IDLE'; // 'IDLE' | 'MOVING'
     this.moveTimer = 0;
     this.moveInterval = 250; // ms per tile step
+    this.selected = false;
   }
 
   moveTo(targetX, targetY, grid) {
@@ -36,8 +37,18 @@ export class Unit {
   draw(ctx, tileSize) {
     const px = this.gridX * tileSize + tileSize / 2;
     const py = this.gridY * tileSize + tileSize / 2;
+    const r = tileSize * 0.42;
 
-    // Shadow circle
+    // Selection ring
+    if (this.selected) {
+      ctx.strokeStyle = '#00ff88';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
     ctx.ellipse(px, py + tileSize * 0.3, tileSize * 0.3, tileSize * 0.12, 0, 0, Math.PI * 2);
@@ -49,7 +60,7 @@ export class Unit {
     ctx.textBaseline = 'middle';
     ctx.fillText('🧑', px, py);
 
-    // Moving indicator dot
+    // Moving dot
     if (this.unitState === 'MOVING') {
       ctx.fillStyle = '#00ff88';
       ctx.beginPath();
