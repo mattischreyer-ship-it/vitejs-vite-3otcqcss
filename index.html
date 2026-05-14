@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stronghold Vibecode</title>
+    <link rel="stylesheet" href="/src/style.css">
+  </head>
+  <body>
+    <!-- 1. The Canvas: This is where the grid is drawn -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Resource Bar (Top) -->
+<div id="resource-hud">
+  <div class="stat">🪵 Wood: <span id="res-wood">0</span></div>
+  <div class="stat">💰 Gold: <span id="res-gold">0</span></div>
+  <div class="stat">🧑‍🌾 Pop: <span id="res-pop">0/0</span></div>
+</div>
+
+<!-- Build Menu (Bottom) -->
+<div id="build-menu">
+  <button class="build-btn" data-type="WOODCUTTER">🪓 Woodcutter</button>
+  <button class="build-btn" data-type="HOVEL">🏠 Hovel</button>
+</div>
+    <!-- 2. The Script: This connects your logic to the page -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

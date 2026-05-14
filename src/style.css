@@ -1,0 +1,41 @@
+body { margin: 0; overflow: hidden; background: #222; }
+canvas { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+/* Container for the whole HUD */
+#resource-hud {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 10px 20px;
+  border-radius: 5px;
+  color: white;
+  font-family: 'Courier New', Courier, monospace;
+  pointer-events: none; /* Let clicks pass through to the game */
+}
+
+#build-menu {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  background: #332211;
+  padding: 15px;
+  border: 3px solid #554433;
+}
+
+.build-btn {
+  padding: 10px;
+  cursor: pointer;
+  background: #887766;
+  border: 2px solid #aa9988;
+  color: white;
+  font-weight: bold;
+}
+
+.build-btn:hover { background: #aa9988; }
+.build-btn:active { transform: translateY(2px); }
