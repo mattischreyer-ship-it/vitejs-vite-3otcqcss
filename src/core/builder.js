@@ -102,22 +102,25 @@ export class Builder {
       state.resources.wood -= (bData.cost.wood || 0);
       state.resources.gold -= (bData.cost.gold || 0);
 
-      // Update Grid Cells
+      const id = Date.now();
+
+      // Mark grid cells with numeric ID so grid.draw() can look up the object
       for (let x = pos.x; x < pos.x + bData.width; x++) {
         for (let y = pos.y; y < pos.y + bData.height; y++) {
-          const tile = this.grid.cells[x][y];
-          tile.buildingId = this.activeType;
-          tile.walkable = false;
-          tile.isOccupied = true;
+          this.grid.cells[x][y].buildingId = id;
         }
       }
 
-      // Record the building in global state for the simulation loop
       state.buildings.push({
+        id,
         type: this.activeType,
         x: pos.x,
         y: pos.y,
-        id: Date.now() // Unique ID for tracking
+        w: bData.width,
+        h: bData.height,
+        status: 'BLUEPRINT',
+        buildProgress: 0,
+        buildRequired: 5,
       });
 
       events.emit('BUILDING_PLACED', { type: this.activeType, pos });

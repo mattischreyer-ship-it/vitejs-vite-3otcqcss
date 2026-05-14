@@ -68,16 +68,39 @@ export class Grid {
         ctx.strokeStyle = '#1e3318';
         ctx.strokeRect(px, py, s, s);
 
-        // Building
+        // Building (blueprint or complete)
         if (cell.buildingId) {
-          const bCfg = config.buildings[cell.buildingId];
-          if (bCfg) {
-            ctx.fillStyle = '#5a3010';
-            ctx.fillRect(px + 2, py + 2, s - 4, s - 4);
-            ctx.font = `${s * 0.6}px Arial`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(bCfg.icon, px + s / 2, py + s / 2);
+          const building = state.buildings.find(b => b.id === cell.buildingId);
+          const bCfg = building ? config.buildings[building.type] : null;
+          if (building && bCfg) {
+            if (building.status === 'BLUEPRINT') {
+              // Dashed yellow outline + translucent icon + progress bar
+              ctx.setLineDash([3, 3]);
+              ctx.strokeStyle = '#ffcc44';
+              ctx.lineWidth = 1;
+              ctx.strokeRect(px + 2, py + 2, s - 4, s - 4);
+              ctx.setLineDash([]);
+              ctx.globalAlpha = 0.45;
+              ctx.font = `${s * 0.6}px Arial`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(bCfg.icon, px + s / 2, py + s / 2);
+              ctx.globalAlpha = 1;
+              // Progress bar
+              const pct = building.buildProgress / building.buildRequired;
+              ctx.fillStyle = '#333';
+              ctx.fillRect(px + 3, py + s - 7, s - 6, 4);
+              ctx.fillStyle = '#ffcc44';
+              ctx.fillRect(px + 3, py + s - 7, (s - 6) * pct, 4);
+            } else {
+              // Completed building
+              ctx.fillStyle = '#5a3010';
+              ctx.fillRect(px + 2, py + 2, s - 4, s - 4);
+              ctx.font = `${s * 0.6}px Arial`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(bCfg.icon, px + s / 2, py + s / 2);
+            }
           }
         }
 

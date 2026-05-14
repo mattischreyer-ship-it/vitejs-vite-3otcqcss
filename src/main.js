@@ -39,14 +39,33 @@ events.on('SPAWN_UNIT', ({ type }) => {
   state.units.push(new Unit(spawnX, spawnY, type));
 });
 
-// Move or gather depending on what's at the target tile
+// Move, gather, or build depending on what's at the target tile
 events.on('MOVE_SELECTED', ({ tileX, tileY }) => {
   const cell = worldMap.cells[tileX]?.[tileY];
   const selected = state.units.filter(u => u.selected);
   if (cell?.resource) {
     selected.forEach(u => u.gatherFrom(tileX, tileY, worldMap));
+  } else if (cell?.buildingId) {
+    const blueprint = state.buildings.find(b => b.id === cell.buildingId && b.status === 'BLUEPRINT');
+    if (blueprint) selected.forEach(u => u.buildAt(blueprint, worldMap));
   } else {
     selected.forEach(u => u.moveTo(tileX, tileY, worldMap));
+  }
+});
+
+// Advance construction progress; complete when threshold reached
+events.on('UNIT_BUILT', ({ unitId, buildingId }) => {
+  const building = state.buildings.find(b => b.id === buildingId);
+  const unit = state.units.find(u => u.id === unitId);
+  if (!building || building.status !== 'BLUEPRINT') {
+    if (unit) unit.stopBuilding();
+    return;
+  }
+  building.buildProgress++;
+  if (building.buildProgress >= building.buildRequired) {
+    building.status = 'COMPLETE';
+    events.emit('BUILDING_COMPLETE', { buildingId });
+    if (unit) unit.stopBuilding();
   }
 });
 

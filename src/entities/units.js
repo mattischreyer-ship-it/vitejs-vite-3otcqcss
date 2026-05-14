@@ -9,16 +9,29 @@ export class Unit {
     this.type = type;
     this.gridX = gridX;
     this.gridY = gridY;
-    this.path = [];
-    this.unitState = 'IDLE'; // 'IDLE' | 'MOVING' | 'GATHERING'
-    this.moveTimer = 0;
-    this.moveInterval = 250;   // ms per tile step
     this.selected = false;
-    this.gatherTarget = null;  // { x, y } tile of resource
+
+    // Movement
+    this.path = [];
+    this.moveTimer = 0;
+    this.moveInterval = 250; // ms per tile
+
+    // State machine: 'IDLE' | 'MOVING' | 'GATHERING' | 'BUILDING'
+    this.unitState = 'IDLE';
+    this._pendingState = null; // state to enter once movement ends
+
+    // Gathering
+    this.gatherTarget = null;  // { x, y }
     this.gatherTimer = 0;
-    this.gatherInterval = 800; // ms per resource unit gathered
-    this._pendingGather = false;
+    this.gatherInterval = 800;
+
+    // Building
+    this.buildTarget = null;   // building.id
+    this.buildTimer = 0;
+    this.buildInterval = 1200;
   }
+
+  // ─── Movement ────────────────────────────────────────────────
 
   moveTo(targetX, targetY, grid) {
     const path = findPath(grid, this.gridX, this.gridY, targetX, targetY);
@@ -26,49 +39,57 @@ export class Unit {
       this.path = path.slice(1);
       this.unitState = 'MOVING';
       this.moveTimer = 0;
-      this._pendingGather = false;
     }
   }
+
+  // ─── Tasks ───────────────────────────────────────────────────
 
   gatherFrom(resX, resY, grid) {
-    // Find the nearest walkable adjacent tile to stand on while gathering
-    let adjacent = null;
-    for (const [dx, dy] of DIRS) {
-      const nx = resX + dx, ny = resY + dy;
-      if (nx >= 0 && ny >= 0 && nx < grid.width && ny < grid.height) {
-        if (grid.cells[nx][ny].walkable && !grid.cells[nx][ny].buildingId) {
-          adjacent = { x: nx, y: ny };
-          break;
-        }
-      }
-    }
-    if (!adjacent) return; // resource is completely blocked
-
+    const adj = this._findAdjacent(resX, resY, 1, 1, grid);
+    if (!adj) return;
     this.gatherTarget = { x: resX, y: resY };
-    this._pendingGather = true;
-    this.moveTo(adjacent.x, adjacent.y, grid);
+    this._pendingState = 'GATHERING';
+    this.moveTo(adj.x, adj.y, grid);
   }
+
+  buildAt(building, grid) {
+    const adj = this._findAdjacent(building.x, building.y, building.w || 1, building.h || 1, grid);
+    if (!adj) return;
+    this.buildTarget = building.id;
+    this._pendingState = 'BUILDING';
+    this.moveTo(adj.x, adj.y, grid);
+  }
+
+  stopGathering() {
+    this.unitState = 'IDLE';
+    this.gatherTarget = null;
+    this._pendingState = null;
+  }
+
+  stopBuilding() {
+    this.unitState = 'IDLE';
+    this.buildTarget = null;
+    this._pendingState = null;
+  }
+
+  // ─── Update ──────────────────────────────────────────────────
 
   update(deltaMs) {
     if (this.unitState === 'MOVING') {
-      if (this.path.length === 0) {
-        this.unitState = this._pendingGather ? 'GATHERING' : 'IDLE';
-        this._pendingGather = false;
-        this.gatherTimer = 0;
-        return;
-      }
       this.moveTimer += deltaMs;
       if (this.moveTimer >= this.moveInterval) {
         this.moveTimer -= this.moveInterval;
         const next = this.path.shift();
         this.gridX = next.x;
         this.gridY = next.y;
-        if (this.path.length === 0) {
-          this.unitState = this._pendingGather ? 'GATHERING' : 'IDLE';
-          this._pendingGather = false;
-          this.gatherTimer = 0;
-        }
       }
+      if (this.path.length === 0) {
+        this.unitState = this._pendingState || 'IDLE';
+        this._pendingState = null;
+        this.gatherTimer = 0;
+        this.buildTimer = 0;
+      }
+
     } else if (this.unitState === 'GATHERING') {
       this.gatherTimer += deltaMs;
       if (this.gatherTimer >= this.gatherInterval) {
@@ -79,21 +100,26 @@ export class Unit {
           tileY: this.gatherTarget.y,
         });
       }
+
+    } else if (this.unitState === 'BUILDING') {
+      this.buildTimer += deltaMs;
+      if (this.buildTimer >= this.buildInterval) {
+        this.buildTimer -= this.buildInterval;
+        events.emit('UNIT_BUILT', {
+          unitId: this.id,
+          buildingId: this.buildTarget,
+        });
+      }
     }
   }
 
-  stopGathering() {
-    this.unitState = 'IDLE';
-    this.gatherTarget = null;
-    this._pendingGather = false;
-  }
+  // ─── Draw ────────────────────────────────────────────────────
 
   draw(ctx, tileSize) {
     const px = this.gridX * tileSize + tileSize / 2;
     const py = this.gridY * tileSize + tileSize / 2;
-    const r = tileSize * 0.42;
+    const r  = tileSize * 0.42;
 
-    // Selection ring
     if (this.selected) {
       ctx.strokeStyle = '#00ff88';
       ctx.lineWidth = 2;
@@ -102,27 +128,48 @@ export class Unit {
       ctx.stroke();
     }
 
-    // Shadow
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.beginPath();
     ctx.ellipse(px, py + tileSize * 0.3, tileSize * 0.3, tileSize * 0.12, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Unit emoji
     ctx.font = `${tileSize * 0.65}px Arial`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('🧑', px, py);
 
-    // State indicator (top-right corner)
+    // State indicator (top-right)
+    const ix = px + tileSize * 0.28;
+    const iy = py - tileSize * 0.28;
     if (this.unitState === 'MOVING') {
       ctx.fillStyle = '#00ff88';
       ctx.beginPath();
-      ctx.arc(px + tileSize * 0.28, py - tileSize * 0.28, 3, 0, Math.PI * 2);
+      ctx.arc(ix, iy, 3, 0, Math.PI * 2);
       ctx.fill();
     } else if (this.unitState === 'GATHERING') {
       ctx.font = `${tileSize * 0.38}px Arial`;
-      ctx.fillText('⛏', px + tileSize * 0.28, py - tileSize * 0.22);
+      ctx.fillText('⛏', ix, iy);
+    } else if (this.unitState === 'BUILDING') {
+      ctx.font = `${tileSize * 0.38}px Arial`;
+      ctx.fillText('🔨', ix, iy);
     }
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────
+
+  _findAdjacent(originX, originY, w, h, grid) {
+    for (let dx = 0; dx < w; dx++) {
+      for (let dy = 0; dy < h; dy++) {
+        for (const [ox, oy] of DIRS) {
+          const nx = originX + dx + ox;
+          const ny = originY + dy + oy;
+          if (nx >= 0 && ny >= 0 && nx < grid.width && ny < grid.height) {
+            const cell = grid.cells[nx][ny];
+            if (cell.walkable && !cell.buildingId) return { x: nx, y: ny };
+          }
+        }
+      }
+    }
+    return null;
   }
 }
