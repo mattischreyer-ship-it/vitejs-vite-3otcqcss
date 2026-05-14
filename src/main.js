@@ -27,6 +27,8 @@ const worldMap = new Grid(
   config.world.gridSize
 );
 
+worldMap.placeResources();
+
 const builder = new Builder(worldMap);
 const economy = new EconomyManager();
 
@@ -37,11 +39,36 @@ events.on('SPAWN_UNIT', ({ type }) => {
   state.units.push(new Unit(spawnX, spawnY, type));
 });
 
-// Move only selected units to the clicked tile
+// Move or gather depending on what's at the target tile
 events.on('MOVE_SELECTED', ({ tileX, tileY }) => {
-  state.units
-    .filter(u => u.selected)
-    .forEach(u => u.moveTo(tileX, tileY, worldMap));
+  const cell = worldMap.cells[tileX]?.[tileY];
+  const selected = state.units.filter(u => u.selected);
+  if (cell?.resource) {
+    selected.forEach(u => u.gatherFrom(tileX, tileY, worldMap));
+  } else {
+    selected.forEach(u => u.moveTo(tileX, tileY, worldMap));
+  }
+});
+
+// Deduct resource from node, credit state, stop unit when depleted
+events.on('UNIT_GATHERED', ({ unitId, tileX, tileY }) => {
+  const cell = worldMap.cells[tileX]?.[tileY];
+  const unit = state.units.find(u => u.id === unitId);
+
+  if (!cell?.resource) {
+    if (unit) unit.stopGathering();
+    return;
+  }
+
+  if (cell.resource.type === 'TREE')  state.resources.wood++;
+  if (cell.resource.type === 'STONE') state.resources.stone++;
+
+  cell.resource.amount--;
+  if (cell.resource.amount <= 0) {
+    cell.resource = null;
+    cell.walkable = true;
+    if (unit) unit.stopGathering();
+  }
 });
 
 let lastSimulationTime = 0;
@@ -137,15 +164,16 @@ function drawSelectionBox() {
  */
 function drawDebugInfo() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-  ctx.fillRect(10, 10, 220, 120);
+  ctx.fillRect(10, 10, 240, 140);
 
   ctx.fillStyle = '#fff';
   ctx.font = '14px monospace';
   ctx.fillText(`Tick: ${state.game.tick}`, 20, 30);
-  ctx.fillText(`Wood: ${Math.floor(state.resources.wood)}`, 20, 50);
+  ctx.fillText(`Wood: ${Math.floor(state.resources.wood)}  Stone: ${Math.floor(state.resources.stone)}`, 20, 50);
   ctx.fillText(`Gold: ${Math.floor(state.resources.gold)}`, 20, 70);
   ctx.fillText(`Units: ${state.units.length}  sel:${state.selection.ids.length}  [P]=spawn`, 20, 90);
   ctx.fillText(`Mode: ${builder.activeType || 'Select'}`, 20, 110);
+  ctx.fillText(`[1]Hovel [2]Wood [3]Quarry`, 20, 130);
 }
 
 // 5. Main Loop

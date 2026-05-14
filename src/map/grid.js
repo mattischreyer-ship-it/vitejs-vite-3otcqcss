@@ -1,4 +1,5 @@
 import { state } from '../state.js';
+import { config } from '../config.js';
 
 export class Grid {
   constructor(width, height, tileSize) {
@@ -17,12 +18,34 @@ export class Grid {
           type: 'grass',
           walkable: true,
           buildingId: null,
+          resource: null, // { type: 'TREE'|'STONE', amount: Number }
         };
       }
     }
   }
 
-  // Convert Screen Pixel to Grid Coordinate
+  // Scatter resource nodes, keeping a clear radius around the spawn center
+  placeResources(treeCount = 80, stoneCount = 25, clearRadius = 6) {
+    const cx = Math.floor(this.width / 2);
+    const cy = Math.floor(this.height / 2);
+
+    const place = (type, amount) => {
+      for (let attempts = 0; attempts < 100; attempts++) {
+        const x = Math.floor(Math.random() * this.width);
+        const y = Math.floor(Math.random() * this.height);
+        const dx = x - cx, dy = y - cy;
+        if (Math.sqrt(dx * dx + dy * dy) >= clearRadius && this.cells[x][y].walkable) {
+          this.cells[x][y].walkable = false;
+          this.cells[x][y].resource = { type, amount };
+          return;
+        }
+      }
+    };
+
+    for (let i = 0; i < treeCount; i++)  place('TREE',  10);
+    for (let i = 0; i < stoneCount; i++) place('STONE', 15);
+  }
+
   screenToGrid(pixelX, pixelY) {
     return {
       x: Math.floor(pixelX / this.tileSize),
@@ -31,41 +54,42 @@ export class Grid {
   }
 
   draw(ctx) {
+    const s = this.tileSize;
+
     for (let x = 0; x < this.width; x++) {
       for (let y = 0; y < this.height; y++) {
-        // Draw tile background
-        ctx.strokeStyle = '#333'; // Dark grid lines
-        ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
-        
         const cell = this.cells[x][y];
-        
-        // Draw terrain background
-        if (cell.type === 'grass') {
-          ctx.fillStyle = '#2d4a22'; 
-          ctx.fillRect(x * this.tileSize + 1, y * this.tileSize + 1, this.tileSize - 2, this.tileSize - 2);
-        }
-        
-        // Draw buildings
+        const px = x * s;
+        const py = y * s;
+
+        // Terrain background
+        ctx.fillStyle = '#2d4a22';
+        ctx.fillRect(px + 1, py + 1, s - 2, s - 2);
+        ctx.strokeStyle = '#1e3318';
+        ctx.strokeRect(px, py, s, s);
+
+        // Building
         if (cell.buildingId) {
-          // Find the building in state
-          const building = window.gameState?.buildings?.find(b => b.id === cell.buildingId);
-          if (building && building.icon) {
-            ctx.fillStyle = '#8B4513'; // Brown background for buildings
-            ctx.fillRect(x * this.tileSize + 2, y * this.tileSize + 2, this.tileSize - 4, this.tileSize - 4);
-            
-            // Draw building icon
-            ctx.font = `${this.tileSize * 0.6}px Arial`;
+          const bCfg = config.buildings[cell.buildingId];
+          if (bCfg) {
+            ctx.fillStyle = '#5a3010';
+            ctx.fillRect(px + 2, py + 2, s - 4, s - 4);
+            ctx.font = `${s * 0.6}px Arial`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = '#fff';
-            ctx.fillText(
-              building.icon, 
-              x * this.tileSize + this.tileSize / 2, 
-              y * this.tileSize + this.tileSize / 2
-            );
+            ctx.fillText(bCfg.icon, px + s / 2, py + s / 2);
           }
+        }
+
+        // Resource node
+        if (cell.resource) {
+          const icon = cell.resource.type === 'TREE' ? '🌲' : '🪨';
+          ctx.font = `${s * 0.7}px Arial`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(icon, px + s / 2, py + s / 2);
         }
       }
     }
   }
-} 
+}
