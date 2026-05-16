@@ -111,16 +111,15 @@ export class Builder {
         }
       }
 
+      const maxHealth = 20;
       state.buildings.push({
         id,
         type: this.activeType,
-        x: pos.x,
-        y: pos.y,
-        w: bData.width,
-        h: bData.height,
+        x: pos.x, y: pos.y,
+        w: bData.width, h: bData.height,
         status: 'BLUEPRINT',
-        buildProgress: 0,
-        buildRequired: 5,
+        buildProgress: 0, buildRequired: 5,
+        health: maxHealth, maxHealth,
       });
 
       events.emit('BUILDING_PLACED', { type: this.activeType, pos });

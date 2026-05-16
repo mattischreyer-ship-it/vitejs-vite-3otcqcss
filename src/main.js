@@ -74,9 +74,48 @@ events.on('UNIT_ATTACKED', ({ unitId, enemyId, damage }) => {
   enemy.takeDamage(damage);
 });
 
-// Remove dead enemies from state
+// Remove dead enemies
 events.on('ENEMY_DIED', ({ enemyId }) => {
   state.enemies = state.enemies.filter(e => e.id !== enemyId);
+});
+
+// Enemy deals damage to a unit or building
+events.on('ENEMY_ATTACKED', ({ enemyId, targetId, targetType, damage }) => {
+  const enemy = state.enemies.find(e => e.id === enemyId);
+  if (targetType === 'UNIT') {
+    const unit = state.units.find(u => u.id === targetId);
+    if (!unit) { if (enemy) enemy.stopAttacking(); return; }
+    unit.takeDamage(damage);
+  } else if (targetType === 'BUILDING') {
+    const building = state.buildings.find(b => b.id === targetId);
+    if (!building) { if (enemy) enemy.stopAttacking(); return; }
+    building.health = Math.max(0, building.health - damage);
+    if (building.health === 0) events.emit('BUILDING_DESTROYED', { buildingId: building.id });
+  }
+});
+
+// Unit dies — remove from state, free population slot
+events.on('UNIT_DIED', ({ unitId }) => {
+  state.units = state.units.filter(u => u.id !== unitId);
+  state.selection.ids = state.selection.ids.filter(id => id !== unitId);
+  state.population.current = Math.max(0, state.population.current - 1);
+});
+
+// Building destroyed — clear grid, remove from state
+events.on('BUILDING_DESTROYED', ({ buildingId }) => {
+  const building = state.buildings.find(b => b.id === buildingId);
+  if (!building) return;
+  for (let x = building.x; x < building.x + (building.w || 1); x++) {
+    for (let y = building.y; y < building.y + (building.h || 1); y++) {
+      worldMap.cells[x][y].buildingId = null;
+      worldMap.cells[x][y].walkable   = true;
+    }
+  }
+  state.buildings = state.buildings.filter(b => b.id !== buildingId);
+  // Stop any enemies that were targeting this building
+  state.enemies.forEach(e => {
+    if (e.attackTargetId === buildingId) e.stopAttacking();
+  });
 });
 
 // Move, gather, or build — with formation spread for multi-unit moves
@@ -158,6 +197,7 @@ function formationPositions(cx, cy, count, grid) {
 
 let lastSimulationTime = 0;
 let lastFrameTime = 0;
+let mouseScreenPos = { x: 0, y: 0 };
 
 // 3. Simulation Logic (1-second ticks)
 function updateSimulation(currentTime) {
@@ -168,11 +208,44 @@ function updateSimulation(currentTime) {
     // Spawn an enemy wave every N ticks
     if (state.game.tick % config.enemySpawnInterval === 0) spawnEnemy();
 
-    // Re-target idle enemies toward map center
+    // Enemy AI: attack adjacent targets or re-path toward nearest building/center
     const cx = Math.floor(config.world.mapWidth / 2);
     const cy = Math.floor(config.world.mapHeight / 2);
-    state.enemies.forEach(e => {
-      if (e.unitState === 'IDLE') e.moveTo(cx, cy, worldMap);
+    const adjDirs = [[0,0],[1,0],[-1,0],[0,1],[0,-1]];
+
+    state.enemies.forEach(enemy => {
+      // Validate existing attack target
+      if (enemy.unitState === 'ATTACKING') {
+        const alive =
+          (enemy.attackTargetType === 'UNIT'     && state.units.find(u => u.id === enemy.attackTargetId)) ||
+          (enemy.attackTargetType === 'BUILDING'  && state.buildings.find(b => b.id === enemy.attackTargetId));
+        if (!alive) enemy.stopAttacking();
+        else return;
+      }
+      if (enemy.unitState !== 'IDLE') return;
+
+      // Priority 1: adjacent unit
+      const adjUnit = state.units.find(u =>
+        Math.abs(u.gridX - enemy.gridX) + Math.abs(u.gridY - enemy.gridY) <= 1
+      );
+      if (adjUnit) { enemy.startAttacking(adjUnit.id, 'UNIT'); return; }
+
+      // Priority 2: adjacent completed building
+      for (const [dx, dy] of adjDirs) {
+        const cell = worldMap.cells[enemy.gridX + dx]?.[enemy.gridY + dy];
+        if (cell?.buildingId) {
+          const bld = state.buildings.find(b => b.id === cell.buildingId && b.status === 'COMPLETE');
+          if (bld) { enemy.startAttacking(bld.id, 'BUILDING'); return; }
+        }
+      }
+
+      // Priority 3: path toward nearest completed building, or map center
+      const completedBuildings = state.buildings.filter(b => b.status === 'COMPLETE');
+      if (completedBuildings.length > 0) {
+        const nearest = nearestEntity(enemy, completedBuildings.map(b => ({ ...b, gridX: b.x, gridY: b.y })));
+        if (nearest) { enemy.moveTo(nearest.gridX, nearest.gridY, worldMap); return; }
+      }
+      enemy.moveTo(cx, cy, worldMap);
     });
 
     // Idle soldiers auto-target nearest enemy
@@ -218,6 +291,13 @@ function nearestEntity(from, list) {
 function updateRender(currentTime) {
   const deltaMs = currentTime - lastFrameTime;
   lastFrameTime = currentTime;
+
+  // Edge scrolling
+  const EDGE = 24, scrollSpeed = Math.max(2, 6 / camera.zoom);
+  if (mouseScreenPos.x < EDGE)                    camera.x -= scrollSpeed;
+  if (mouseScreenPos.x > canvas.width  - EDGE)    camera.x += scrollSpeed;
+  if (mouseScreenPos.y < EDGE)                     camera.y -= scrollSpeed;
+  if (mouseScreenPos.y > canvas.height - EDGE)     camera.y += scrollSpeed;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -350,6 +430,7 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mousemove', (e) => {
+  mouseScreenPos = { x: e.clientX, y: e.clientY };
   // Selector drag tracking
   selector.updateDrag(e.clientX, e.clientY);
 

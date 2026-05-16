@@ -100,6 +100,15 @@ export class Grid {
               ctx.textAlign = 'center';
               ctx.textBaseline = 'middle';
               ctx.fillText(bCfg.icon, px + s / 2, py + s / 2);
+              // Health bar (only on origin tile, only when damaged)
+              if (building.x === x && building.y === y && building.health < building.maxHealth) {
+                const pct = building.health / building.maxHealth;
+                const bw  = s - 6;
+                ctx.fillStyle = '#111';
+                ctx.fillRect(px + 3, py + s - 7, bw, 4);
+                ctx.fillStyle = pct > 0.5 ? '#44dd44' : pct > 0.25 ? '#ffaa00' : '#ff3333';
+                ctx.fillRect(px + 3, py + s - 7, bw * pct, 4);
+              }
             }
           }
         }

@@ -11,6 +11,9 @@ export class Unit {
     this.gridY = gridY;
     this.selected = false;
 
+    this.maxHealth = type === 'SOLDIER' ? 50 : 20;
+    this.health    = this.maxHealth;
+
     this.path = [];
     this.moveTimer = 0;
     this.moveInterval = type === 'SOLDIER' ? 220 : 250;
@@ -75,6 +78,11 @@ export class Unit {
     this.moveTo(adj.x, adj.y, grid, false);
   }
 
+  takeDamage(amount) {
+    this.health = Math.max(0, this.health - amount);
+    if (this.health === 0) events.emit('UNIT_DIED', { unitId: this.id });
+  }
+
   stopGathering()  { this._resetTask(); this.gatherTarget = null; }
   stopBuilding()   { this._resetTask(); this.buildTarget  = null; }
   stopAttacking()  { this._resetTask(); this.attackTarget = null; }
@@ -129,6 +137,15 @@ export class Unit {
   draw(ctx, tileSize) {
     const px = this.gridX * tileSize + tileSize / 2;
     const py = this.gridY * tileSize + tileSize / 2;
+
+    // Health bar (only when damaged)
+    if (this.health < this.maxHealth) {
+      const bw = tileSize - 6, pct = this.health / this.maxHealth;
+      ctx.fillStyle = '#111';
+      ctx.fillRect(px - bw / 2, py - tileSize * 0.5, bw, 3);
+      ctx.fillStyle = pct > 0.5 ? '#44dd44' : pct > 0.25 ? '#ffaa00' : '#ff3333';
+      ctx.fillRect(px - bw / 2, py - tileSize * 0.5, bw * pct, 3);
+    }
 
     if (this.selected) {
       ctx.strokeStyle = this.type === 'SOLDIER' ? '#88aaff' : '#00ff88';
