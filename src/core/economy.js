@@ -15,16 +15,12 @@ export class EconomyManager {
   }
 
   processProduction() {
-    // 1. Loop through every building currently in the game state
     state.buildings.forEach(building => {
-      const type = building.type;
-      
-      // 2. Check if this building type produces anything
-      // (Assumes your config.buildings has a 'production' object)
-      const bConfig = config.buildings[type];
-      
-      if (bConfig && bConfig.production) {
-        this.generateResources(bConfig.production);
+      if (building.status !== 'COMPLETE') return; // blueprints don't produce
+      const bConfig = config.buildings[building.type];
+      const prod = bConfig?.production;
+      if (prod && Object.keys(prod).length > 0) {
+        this.generateResources(prod);
       }
     });
 

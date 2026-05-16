@@ -39,5 +39,13 @@ export const BUILDING_TYPES = {
     cost: { wood: 20, stone: 10 },
     icon: '⚔️',
     description: 'Trains soldiers'
+  },
+  FARM: {
+    name: 'Farm',
+    width: 2,
+    height: 2,
+    cost: { wood: 5 },
+    icon: '🌾',
+    description: 'Produces food each tick'
   }
 };

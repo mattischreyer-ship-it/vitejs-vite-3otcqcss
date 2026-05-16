@@ -67,6 +67,15 @@ class Camera {
     ctx.translate(-this.x, -this.y);
   }
   
+  // Zoom toward a screen-space pivot point (e.g. mouse position)
+  zoomAt(factor, screenX, screenY) {
+    const worldX = screenX / this.zoom + this.x;
+    const worldY = screenY / this.zoom + this.y;
+    this.zoom = Math.min(3, Math.max(0.25, this.zoom * factor));
+    this.x = worldX - screenX / this.zoom;
+    this.y = worldY - screenY / this.zoom;
+  }
+
   // Restore canvas context
   restoreTransform(ctx) {
     ctx.restore();

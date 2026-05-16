@@ -40,8 +40,14 @@ export const config = {
     HOVEL: {
       name: 'Hovel',
       cost: { wood: 6 },
-      production: { population: 8 }, // Adds to capacity
+      production: {}, // pop.max handled by BUILDING_COMPLETE event
       width: 1, height: 1, icon: '🏠'
+    },
+    FARM: {
+      name: 'Farm',
+      cost: { wood: 5 },
+      production: { food: 3 },
+      width: 2, height: 2, icon: '🌾'
     },
     QUARRY: {
       name: 'Quarry',

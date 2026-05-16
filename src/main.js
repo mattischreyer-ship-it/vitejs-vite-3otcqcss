@@ -79,17 +79,24 @@ events.on('ENEMY_DIED', ({ enemyId }) => {
   state.enemies = state.enemies.filter(e => e.id !== enemyId);
 });
 
-// Move, gather, or build depending on what's at the target tile
+// Move, gather, or build — with formation spread for multi-unit moves
 events.on('MOVE_SELECTED', ({ tileX, tileY }) => {
   const cell = worldMap.cells[tileX]?.[tileY];
   const selected = state.units.filter(u => u.selected);
+  if (!selected.length) return;
+
   if (cell?.resource) {
     selected.forEach(u => u.gatherFrom(tileX, tileY, worldMap));
   } else if (cell?.buildingId) {
     const blueprint = state.buildings.find(b => b.id === cell.buildingId && b.status === 'BLUEPRINT');
     if (blueprint) selected.forEach(u => u.buildAt(blueprint, worldMap));
   } else {
-    selected.forEach(u => u.moveTo(tileX, tileY, worldMap));
+    // Spread units across nearby walkable tiles so they don't all stack
+    const positions = formationPositions(tileX, tileY, selected.length, worldMap);
+    selected.forEach((u, i) => {
+      const pos = positions[i] ?? positions.at(-1) ?? { x: tileX, y: tileY };
+      u.moveTo(pos.x, pos.y, worldMap);
+    });
   }
 });
 
@@ -129,6 +136,25 @@ events.on('UNIT_GATHERED', ({ unitId, tileX, tileY }) => {
     if (unit) unit.stopGathering();
   }
 });
+
+// BFS outward from target — returns N distinct walkable positions
+function formationPositions(cx, cy, count, grid) {
+  const out = [], visited = new Set([`${cx},${cy}`]);
+  const queue = [{ x: cx, y: cy }];
+  const dirs  = [[0,0],[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+  while (queue.length && out.length < count) {
+    const { x, y } = queue.shift();
+    if (x >= 0 && y >= 0 && x < grid.width && y < grid.height) {
+      const c = grid.cells[x][y];
+      if (c.walkable && !c.buildingId && !c.resource) out.push({ x, y });
+      for (const [dx, dy] of dirs) {
+        const k = `${x+dx},${y+dy}`;
+        if (!visited.has(k)) { visited.add(k); queue.push({ x: x+dx, y: y+dy }); }
+      }
+    }
+  }
+  return out;
+}
 
 let lastSimulationTime = 0;
 let lastFrameTime = 0;
@@ -282,9 +308,9 @@ function drawDebugInfo() {
   ctx.fillText(`Pop: ${state.population.current}/${state.population.max}`, 20, 84);
   ctx.fillText(`Sel: ${state.selection.ids.length}  Mode: ${builder.activeType || 'Select'}`, 20, 102);
   ctx.fillStyle = '#aaa';
-  ctx.fillText(`[P]Peasant(food) [S]Soldier(gold)`, 20, 122);
-  ctx.fillText(`[1]Hovel [2]Lumber [3]Quarry [4]Barracks`, 20, 140);
-  ctx.fillText(`[Ctrl+S]Save  [Ctrl+L]Load`, 20, 158);
+  ctx.fillText(`Zoom: ${camera.zoom.toFixed(2)}x  [scroll to zoom]`, 20, 122);
+  ctx.fillText(`[P]Peasant [S]Soldier [Ctrl+S/L]Save/Load`, 20, 140);
+  ctx.fillText(`[1]Hovel [2]Lumber [3]Quarry [4]Barracks [5]Farm`, 20, 158);
 }
 
 // 5. Main Loop
@@ -305,6 +331,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '2') events.emit('UI_SELECT_BUILDING', 'WOODCUTTER');
   if (e.key === '3') events.emit('UI_SELECT_BUILDING', 'QUARRY');
   if (e.key === '4') events.emit('UI_SELECT_BUILDING', 'BARRACKS');
+  if (e.key === '5') events.emit('UI_SELECT_BUILDING', 'FARM');
   if (e.key === 'p' || e.key === 'P') events.emit('SPAWN_UNIT', { type: 'PEASANT' });
   if (e.key === 's' || e.key === 'S') {
     if (e.ctrlKey) { e.preventDefault(); save(worldMap); }
@@ -338,6 +365,12 @@ canvas.addEventListener('mouseup', (e) => {
     selector.endDrag(e.clientX, e.clientY, camera, config.world.gridSize, !!builder.activeType);
   }
 });
+
+// Scroll wheel: zoom toward cursor
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  camera.zoomAt(e.deltaY < 0 ? 1.1 : 0.9, e.clientX, e.clientY);
+}, { passive: false });
 
 // Initialization Call
 window.dispatchEvent(new Event('resize'));

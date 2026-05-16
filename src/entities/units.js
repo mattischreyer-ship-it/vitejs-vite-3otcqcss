@@ -38,13 +38,14 @@ export class Unit {
 
   // ─── Movement ────────────────────────────────────────────────
 
-  moveTo(targetX, targetY, grid) {
+  // clearPending=true for direct move commands; false when called from a task setter
+  moveTo(targetX, targetY, grid, clearPending = true) {
     const path = findPath(grid, this.gridX, this.gridY, targetX, targetY);
     if (path.length > 1) {
       this.path = path.slice(1);
       this.unitState = 'MOVING';
       this.moveTimer = 0;
-      this._pendingState = null;
+      if (clearPending) this._pendingState = null;
     }
   }
 
@@ -53,28 +54,25 @@ export class Unit {
   gatherFrom(resX, resY, grid) {
     const adj = this._findAdjacent(resX, resY, 1, 1, grid);
     if (!adj) return;
-    this.gatherTarget = { x: resX, y: resY };
-    this._pendingState = 'GATHERING';
-    this.moveTo(adj.x, adj.y, grid);
-    this._pendingState = 'GATHERING'; // moveTo clears it; restore
+    this.gatherTarget    = { x: resX, y: resY };
+    this._pendingState   = 'GATHERING';
+    this.moveTo(adj.x, adj.y, grid, false);
   }
 
   buildAt(building, grid) {
     const adj = this._findAdjacent(building.x, building.y, building.w || 1, building.h || 1, grid);
     if (!adj) return;
-    this.buildTarget = building.id;
+    this.buildTarget   = building.id;
     this._pendingState = 'BUILDING';
-    this.moveTo(adj.x, adj.y, grid);
-    this._pendingState = 'BUILDING';
+    this.moveTo(adj.x, adj.y, grid, false);
   }
 
   attackEnemy(enemy, grid) {
     const adj = this._findAdjacent(enemy.gridX, enemy.gridY, 1, 1, grid);
     if (!adj) return;
-    this.attackTarget = enemy.id;
+    this.attackTarget  = enemy.id;
     this._pendingState = 'ATTACKING';
-    this.moveTo(adj.x, adj.y, grid);
-    this._pendingState = 'ATTACKING';
+    this.moveTo(adj.x, adj.y, grid, false);
   }
 
   stopGathering()  { this._resetTask(); this.gatherTarget = null; }
